@@ -39,8 +39,7 @@ func main() {
 
 	file, err := os.OpenFile("results.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 
-	// numWorkers := 3 // Количество потоков
-
+	// Вычисления от 1 до 24 потоков
 	for numWorkers := 1; numWorkers <= 24; numWorkers++ {
 		var attemptsResults []float64
 		var attemptsTime []int64
@@ -95,5 +94,4 @@ func main() {
 		file.WriteString(strconv.FormatFloat(result, 'f', -1, 32) + "\t")
 		file.WriteString(strconv.FormatInt(resultTime, 10) + "\n")
 	}
-
 }
