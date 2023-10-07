@@ -2,64 +2,91 @@ package main
 
 import (
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 )
 
-func calcFunc(value float64, roots []float64) float64 {
-	var accumulator float64 = 1
+func translateToPolar(x, y float64) (float64, float64) {
+	radius := math.Sqrt(math.Pow(x, 2) + math.Pow(y, 2))
+	angle := math.Acos(x / math.Sqrt(math.Pow(x, 2)+math.Pow(y, 2)))
 
-	for i := 0; i < 4; i++ {
-		accumulator *= value - roots[i]
+	if y < 0 {
+		angle *= -1
 	}
 
-	return accumulator
+	if x == 0 && y == 0 {
+		radius = 0
+		angle = 0
+	}
+
+	return radius, angle
 }
 
-func calcSpace(startWith, endWith float64, numSteps int64, roots []float64, workerGroup *sync.WaitGroup, results chan<- float64) {
+func calcFunc(angle float64) float64 {
+	return math.Sin(5*angle) - math.Cos(10*angle)/math.Cos(2*angle) - math.Cos(6*angle) + 7
+	// return 2 * math.Pow(math.Cos(angle), 2)
+	// return 1
+}
+
+func isInside(x, y float64) bool {
+	radius, angle := translateToPolar(x, y)
+	funcRadius := calcFunc(angle)
+
+	if radius <= funcRadius {
+		return true
+	} else {
+		return false
+	}
+}
+
+func calcNumberInside(min, max float64, numOfRandomNumbers int, workerGroup *sync.WaitGroup, results chan<- int64) {
 	defer workerGroup.Done()
 
-	delta := (endWith - startWith) / float64(numSteps)
-	var sum float64 = 0
+	var countSuccessTries int64 = 0
 
-	for startWith < endWith {
-		sum += delta * (calcFunc(startWith, roots) + calcFunc(startWith+delta, roots)) / 2
-		startWith += delta
+	for i := 0; i <= numOfRandomNumbers; i++ {
+		randomX := min + rand.Float64()*(max-min)
+		randomY := min + rand.Float64()*(max-min)
+
+		if isInside(randomX, randomY) {
+			countSuccessTries++
+		}
 	}
-
-	results <- sum
+	results <- countSuccessTries
 }
 
 func main() {
-	start, end := 0.0, 10.0         // Границы интегирования
-	var numSteps int64 = 2000000000 // Количество шагов
-	roots := []float64{1, 4, 9, 10} // Корни уравнения
+	var min, max float64 = -10.0, 10.0 // Минимальное и максимальное значение для генерации
+	numOfRandomNumbers := 50_000_000   // Колличество случайных чисел
 
 	file, err := os.OpenFile("results.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 
-	// Вычисления от 1 до 24 потоков
-	for numWorkers := 1; numWorkers <= 24; numWorkers++ {
-		var attemptsResults []float64
-		var attemptsTime []int64
+	if err != nil {
+		fmt.Println("Unable to read file:", err)
+		os.Exit(1)
+	}
+	defer file.Close()
 
-		if err != nil {
-			fmt.Println("Unable to create file:", err)
-			os.Exit(1)
-		}
-		defer file.Close()
+	// Расчет при количестве потоков от 1 до 24
+	for numOfWorkers := 1; numOfWorkers <= 24; numOfWorkers++ {
+		var attemptResults []int64
+		var attemptTime []int64
+		numbersForWorker := numOfRandomNumbers / numOfWorkers
 
-		for i := 0; i < 5; i++ {
+		// Пять замеров времени
+		for n := 1; n < 5; n++ {
 			workerGroup := &sync.WaitGroup{}
-			results := make(chan float64, numWorkers)
-			step := (end - start) / float64(numWorkers)
+			results := make(chan int64)
 
-			startTime := time.Now() // Начало отсчета
+			startTime := time.Now() // Начало отсчета времени
 
-			for i := 0; i < numWorkers; i++ {
+			for i := 0; i < numOfWorkers; i++ {
 				workerGroup.Add(1)
-				go calcSpace(start+float64(i)*step, start+float64(i+1)*step, numSteps/int64(numWorkers), roots, workerGroup, results)
+				go calcNumberInside(min, max, numbersForWorker, workerGroup, results)
 			}
 
 			go func() {
@@ -67,31 +94,33 @@ func main() {
 				close(results)
 			}()
 
-			totalSpace := 0.0
-			for area := range results {
-				totalSpace += area
+			var totalInside int64 = 0
+			for num := range results {
+				totalInside += num
 			}
 
-			endTime := time.Now() // Конец отсчета
+			endTime := time.Now() // Конец отсчета времени
 
-			attemptsTime = append(attemptsTime, int64(endTime.Sub(startTime)/time.Millisecond))
-			attemptsResults = append(attemptsResults, totalSpace)
+			attemptResults = append(attemptResults, totalInside)
+			attemptTime = append(attemptTime, int64(endTime.Sub(startTime)/time.Millisecond))
 		}
 
-		var result float64 = 0.0
-		for _, res := range attemptsResults {
-			result += res
+		// Нахождение среднего от попыток
+		var averageNumInside int64 = 0
+		for _, num := range attemptResults {
+			averageNumInside += num
 		}
-		result /= float64((len(attemptsResults)))
+		averageNumInside /= int64(len(attemptResults))
 
-		var resultTime int64 = 0
-		for _, res := range attemptsTime {
-			resultTime += res
+		var averageTime int64 = 0
+		for _, time := range attemptTime {
+			averageTime += time
 		}
-		resultTime /= int64(len(attemptsTime))
+		averageTime /= int64(len(attemptTime))
 
-		file.WriteString(strconv.FormatInt(int64(numWorkers), 10) + "\t")
-		file.WriteString(strconv.FormatFloat(result, 'f', -1, 32) + "\t")
-		file.WriteString(strconv.FormatInt(resultTime, 10) + "\n")
+		file.WriteString(strconv.FormatInt(int64(numOfWorkers), 10) + "\t")
+		file.WriteString(strconv.FormatFloat(math.Pow(max-min, 2)*float64(averageNumInside)/float64(numOfRandomNumbers), 'f', 3, 64) + "\t")
+		file.WriteString(strconv.FormatInt(averageTime, 10) + "\n")
 	}
+
 }
