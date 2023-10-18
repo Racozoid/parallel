@@ -5,122 +5,288 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"strconv"
+
+	// "sort"
 	"sync"
 	"time"
+
+	"github.com/go-echarts/go-echarts/v2/charts"
+	"github.com/go-echarts/go-echarts/v2/opts"
+	"github.com/go-echarts/go-echarts/v2/types"
 )
 
-func translateToPolar(x, y float64) (float64, float64) {
-	radius := math.Sqrt(math.Pow(x, 2) + math.Pow(y, 2))
-	angle := math.Acos(x / math.Sqrt(math.Pow(x, 2)+math.Pow(y, 2)))
-
-	if y < 0 {
-		angle *= -1
-	}
-
-	if x == 0 && y == 0 {
-		radius = 0
-		angle = 0
-	}
-
-	return radius, angle
+type BWithIndexes struct {
+	i     int
+	j     int
+	value float64
 }
 
-func calcFunc(angle float64) float64 {
-	return math.Sin(5*angle) - math.Cos(10*angle)/math.Cos(2*angle) - math.Cos(6*angle) + 7
-	// return 2 * math.Pow(math.Cos(angle), 2)
-	// return 1
+type ValuesFloat64WithNumber struct {
+	number int
+	value  []float64
 }
 
-func isInside(x, y float64) bool {
-	radius, angle := translateToPolar(x, y)
-	funcRadius := calcFunc(angle)
+func createLineChart(data []opts.LineData, XAxis []float64, filename, title, XTitle, YTitle string) {
+	line := charts.NewLine()
 
-	if radius <= funcRadius {
-		return true
-	} else {
-		return false
+	line.SetGlobalOptions(
+		charts.WithInitializationOpts(opts.Initialization{
+			Theme: types.ThemeInfographic,
+		}),
+		charts.WithXAxisOpts(opts.XAxis{
+			Name: XTitle,
+		}),
+		charts.WithYAxisOpts(opts.YAxis{
+			Name: YTitle,
+		}),
+	)
+
+	line.SetXAxis(XAxis).AddSeries(YTitle, data).SetSeriesOptions(charts.WithLineChartOpts(opts.LineChart{Smooth: true}))
+	f, _ := os.Create(filename)
+	_ = line.Render(f)
+}
+
+func create2LineChart(data1, data2 []opts.LineData, XAxis []int, filename, title, XTitle, YTitle1, YTitle2 string) {
+	line := charts.NewLine()
+
+	line.SetGlobalOptions(
+		charts.WithInitializationOpts(opts.Initialization{
+			Theme: types.ThemeInfographic,
+		}),
+		charts.WithXAxisOpts(opts.XAxis{
+			Name: XTitle,
+		}),
+		charts.WithYAxisOpts(opts.YAxis{
+			Name: title,
+		}),
+	)
+
+	line.SetXAxis(XAxis).
+		AddSeries(YTitle1, data1).
+		AddSeries(YTitle2, data2).
+		SetSeriesOptions(charts.WithLineChartOpts(opts.LineChart{Smooth: true}))
+	f, _ := os.Create(filename)
+	_ = line.Render(f)
+}
+
+func calcEfficiency(num, numOfVarinats int, arrOfA []float64, arrOfB []BWithIndexes) float64 {
+	var E float64 = 0.0
+	var numBinary string = fmt.Sprintf("%0*b", numOfVarinats, num)
+
+	var step int = numOfVarinats - 1
+	startPosition := 0
+
+	for i := 0; i < len(arrOfA); i++ {
+
+		if string(numBinary[i]) == "0" {
+			E -= arrOfA[i]
+		} else {
+			E += arrOfA[i]
+		}
+
+		for j := startPosition; j < startPosition+step; j++ {
+			if string(numBinary[arrOfB[j].i]) == "0" {
+				arrOfB[j].value *= -1
+			}
+
+			if string(numBinary[arrOfB[j].j]) == "0" {
+				arrOfB[j].value *= -1
+			}
+
+			E += arrOfB[j].value
+		}
+		startPosition += step
+		step--
 	}
+	return E
 }
 
-func calcNumberInside(min, max float64, numOfRandomNumbers int, workerGroup *sync.WaitGroup, results chan<- int64) {
+func calcAllEfficiency(number, start, end, numOfVariants int, arrOfA []float64, arrOfB []BWithIndexes, workerGroup *sync.WaitGroup, results chan<- ValuesFloat64WithNumber) {
 	defer workerGroup.Done()
 
-	var countSuccessTries int64 = 0
+	var arrOfE []float64
+	for i := start; i < end; i++ {
+		arrOfE = append(arrOfE, calcEfficiency(i, numOfVariants, arrOfA, arrOfB))
+	}
 
-	for i := 0; i <= numOfRandomNumbers; i++ {
-		randomX := min + rand.Float64()*(max-min)
-		randomY := min + rand.Float64()*(max-min)
+	results <- ValuesFloat64WithNumber{number, arrOfE}
+}
 
-		if isInside(randomX, randomY) {
-			countSuccessTries++
+func calcAverageAMax(number int, start, end float64, numOfVariants int, arrOfE []float64, indexAMax int, workerGroup *sync.WaitGroup, results chan<- ValuesFloat64WithNumber) {
+	defer workerGroup.Done()
+
+	var arrAverageAMax []float64
+	for T := start; T < end; T += 0.5 {
+		//? Подсчет Ро
+		var arrOfRho []float64
+
+		for _, E := range arrOfE {
+			arrOfRho = append(arrOfRho, math.Exp(E/T))
+		}
+
+		var sumOfRho float64 = 0
+
+		for _, rho := range arrOfRho {
+			sumOfRho += rho
+		}
+
+		//? Нормализация Ро
+		var arrOfRhoNormalized []float64
+
+		for _, rho := range arrOfRho {
+			arrOfRhoNormalized = append(arrOfRhoNormalized, rho/sumOfRho)
+		}
+
+		//? Поиск <Amax>
+		AverageAMax := 0.0
+		for i, Rho := range arrOfRhoNormalized {
+			var numBinary string = fmt.Sprintf("%0*b", numOfVariants, i)
+
+			if string(numBinary[indexAMax]) == "0" {
+				AverageAMax -= Rho
+			} else {
+				AverageAMax += Rho
+			}
+		}
+
+		arrAverageAMax = append(arrAverageAMax, AverageAMax)
+	}
+
+	results <- ValuesFloat64WithNumber{number, arrAverageAMax}
+}
+
+func findIndexAMax(arrOfA []float64) int {
+	var indexAMax int = -1
+	var AMax float64 = -2
+	for i, a := range arrOfA {
+		if a > AMax {
+			AMax = a
+			indexAMax = i
 		}
 	}
-	results <- countSuccessTries
+
+	return indexAMax
 }
 
 func main() {
-	var min, max float64 = -10.0, 10.0 // Минимальное и максимальное значение для генерации
-	numOfRandomNumbers := 50_000_000   // Колличество случайных чисел
+	var numOfVariants int = 22 //? Сколько вариант
 
-	file, err := os.OpenFile("results.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	var arrOfA []float64
+	var arrOfB []BWithIndexes
 
-	if err != nil {
-		fmt.Println("Unable to read file:", err)
-		os.Exit(1)
+	//? Генерация коэффициентов a и b
+	for i := 0; i < numOfVariants; i++ {
+		arrOfA = append(arrOfA, float64(-1+rand.Float64()*(1+1)))
 	}
-	defer file.Close()
 
-	// Расчет при количестве потоков от 1 до 24
-	for numOfWorkers := 1; numOfWorkers <= 24; numOfWorkers++ {
-		var attemptResults []int64
-		var attemptTime []int64
-		numbersForWorker := numOfRandomNumbers / numOfWorkers
-
-		// Пять замеров времени
-		for n := 1; n < 5; n++ {
-			workerGroup := &sync.WaitGroup{}
-			results := make(chan int64)
-
-			startTime := time.Now() // Начало отсчета времени
-
-			for i := 0; i < numOfWorkers; i++ {
-				workerGroup.Add(1)
-				go calcNumberInside(min, max, numbersForWorker, workerGroup, results)
-			}
-
-			go func() {
-				workerGroup.Wait()
-				close(results)
-			}()
-
-			var totalInside int64 = 0
-			for num := range results {
-				totalInside += num
-			}
-
-			endTime := time.Now() // Конец отсчета времени
-
-			attemptResults = append(attemptResults, totalInside)
-			attemptTime = append(attemptTime, int64(endTime.Sub(startTime)/time.Millisecond))
+	for i := 0; i < numOfVariants; i++ {
+		for j := i + 1; j < numOfVariants; j++ {
+			arrOfB = append(arrOfB, BWithIndexes{i, j, float64(-1 + rand.Float64()*(1+1))})
 		}
-
-		// Нахождение среднего от попыток
-		var averageNumInside int64 = 0
-		for _, num := range attemptResults {
-			averageNumInside += num
-		}
-		averageNumInside /= int64(len(attemptResults))
-
-		var averageTime int64 = 0
-		for _, time := range attemptTime {
-			averageTime += time
-		}
-		averageTime /= int64(len(attemptTime))
-
-		file.WriteString(strconv.FormatInt(int64(numOfWorkers), 10) + "\t")
-		file.WriteString(strconv.FormatFloat(math.Pow(max-min, 2)*float64(averageNumInside)/float64(numOfRandomNumbers), 'f', 3, 64) + "\t")
-		file.WriteString(strconv.FormatInt(averageTime, 10) + "\n")
 	}
+	indexAMax := findIndexAMax(arrOfA)
+
+	var arrOfTimes []time.Duration
+	var arrOfNumberOfWorkers []int
+
+	for numWorkers := 1; numWorkers <= 24; numWorkers++ {
+		//? Для графика E
+		// arrY := make([]opts.LineData, 0)
+		// var arrX []float64
+
+		//? Для графика <А макс>
+		// arrAverageAMax := make([]opts.LineData, 0)
+		// var arrOfT []float64
+
+		workerGroup := &sync.WaitGroup{}
+		results := make(chan ValuesFloat64WithNumber)
+		numbersForWorker := int(math.Pow(2, float64(numOfVariants)) / float64(numWorkers))
+
+		workerGroupRho := &sync.WaitGroup{}
+		resultsRho := make(chan ValuesFloat64WithNumber)
+		var TForWorker float64 = 50.0 / float64(numWorkers)
+
+		//*************************** Начало отсчета времени
+		startTime := time.Now()
+
+		for i := 0; i < numWorkers; i++ {
+			workerGroup.Add(1)
+			go calcAllEfficiency(i, i*numbersForWorker, (i+1)*numbersForWorker, numOfVariants, arrOfA, arrOfB, workerGroup, results)
+		}
+
+		go func() {
+			workerGroup.Wait()
+			close(results)
+		}()
+
+		var chaoticE []ValuesFloat64WithNumber
+		for result := range results {
+			chaoticE = append(chaoticE, result)
+		}
+
+		var arrOfE []float64
+		for t := 0; t < numWorkers; t++ {
+			for _, result := range chaoticE {
+				// fmt.Print(t, result.number == t, "\t")
+				if result.number == t {
+
+					arrOfE = append(arrOfE, result.value...)
+				}
+			}
+		}
+		// fmt.Print(len(arrOfE), "\n\n")
+		//? График E
+		// sortedArrOfE := append([]float64{}, arrOfE...)
+		// sort.Sort(sort.Reverse(sort.Float64Slice(sortedArrOfE)))
+		// for x, y := range sortedArrOfE {
+		// 	if x%100 == 0 {
+		// 		arrX = append(arrX, float64(x))
+		// 		arrY = append(arrY, opts.LineData{Value: y})
+		// 	}
+		// }
+		// createLineChart(arrY, arrX, "E.html", "E", "n", "E")
+
+		for i := 0; i < numWorkers; i++ {
+			workerGroupRho.Add(1)
+			go calcAverageAMax(i, 0.1+TForWorker*float64(i), 0.1+TForWorker*float64(i+1), numOfVariants, arrOfE, indexAMax, workerGroupRho, resultsRho)
+		}
+
+		go func() {
+			workerGroupRho.Wait()
+			close(resultsRho)
+		}()
+
+		var chaoticAverageAmax []ValuesFloat64WithNumber
+		for result := range resultsRho {
+			chaoticAverageAmax = append(chaoticAverageAmax, result)
+		}
+
+		var arrOfAverageAmax []float64
+		for t := 0; t < numWorkers; t++ {
+			for _, result := range chaoticAverageAmax {
+				if result.number == t {
+					arrOfAverageAmax = append(arrOfAverageAmax, result.value...)
+				}
+			}
+		}
+		// fmt.Print(len(arrOfAverageAmax), "\n\n")
+
+		// createLineChart(arrAverageAMax, arrOfT, "Amax.html", "<A max>", "T", "<A max>")
+		endTime := time.Now() //* Конец отсчета времени
+		arrOfTimes = append(arrOfTimes, endTime.Sub(startTime))
+		arrOfNumberOfWorkers = append(arrOfNumberOfWorkers, numWorkers)
+	}
+
+	experimentTime := make([]opts.LineData, 0)
+	for _, t := range arrOfTimes {
+		experimentTime = append(experimentTime, opts.LineData{Value: int64(t / time.Millisecond)})
+	}
+
+	idealTime := make([]opts.LineData, 0)
+	for _, num := range arrOfNumberOfWorkers {
+		idealTime = append(idealTime, opts.LineData{Value: int64(arrOfTimes[0]/time.Millisecond) / int64(num)})
+	}
+
+	create2LineChart(experimentTime, idealTime, arrOfNumberOfWorkers, "Time.html", "T, ms", "N", "Полученное время", "Идеальное время")
 
 }
