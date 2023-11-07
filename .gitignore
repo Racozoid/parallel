@@ -22,3 +22,8 @@ go.work
 
 *.txt
 *.html
+*.jpg
+*.bmp
+*.png
+
+.vscode

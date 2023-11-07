@@ -1,4 +1,4 @@
-package charts
+package main
 
 import (
 	"os"
