@@ -4,10 +4,6 @@ import (
 	"math"
 )
 
-func PositiveMax(num float64) float64 {
-	return max(num, 0)
-}
-
 // Находим минимум и максимум слайса интов
 func FindMinAndMax(arr [][]int) (minValue int, maxValue int) {
 	minValue, maxValue = math.MaxInt64, math.MinInt64
@@ -23,8 +19,8 @@ func FindMinAndMax(arr [][]int) (minValue int, maxValue int) {
 }
 
 // Приводим получившееся изображение к исходному диапазону
-func NormalizeImage(image [][]int) [][]int {
-	minOriginal, maxOriginal := FindMinAndMax(OriginalImage)
+func NormalizeImage(image, originalImage [][]int) [][]int {
+	minOriginal, maxOriginal := FindMinAndMax(originalImage)
 	minResult, maxResult := FindMinAndMax(image)
 
 	var result [][]int
