@@ -11,7 +11,7 @@ const RED_IMAGE = "originals\\cat.jpg"
 func main() {
 	fmt.Println("Start")
 
-	Walk()
+	WalkManyTimes()
 
 	fmt.Println("Complete")
 
