@@ -1,18 +1,17 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+)
 
-// Размер итогового квадратного изображения
-const SIZE = 1000
-
-const BLUE_IMAGE = "originals\\girl.jpg"
-const RED_IMAGE = "originals\\cat.jpg"
+const SIZE int = 1e6
+const DISCRETIZATION float64 = 0.001
+const NEED_TO_FIND int64 = 1e5
 
 func main() {
 	fmt.Println("Start")
 
-	WalkManyTimes()
+	SoloWalking()
 
 	fmt.Println("Complete")
-
 }
