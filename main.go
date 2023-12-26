@@ -11,7 +11,7 @@ const NEED_TO_FIND int64 = 1e5
 func main() {
 	fmt.Println("Start")
 
-	SoloWalking()
+	Balance()
 
 	fmt.Println("Complete")
 }
